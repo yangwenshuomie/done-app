@@ -50,10 +50,34 @@ window._signOut = async ()=>{
   showLoginScreen();
 };
 
-// Handle redirect result when page loads back after Google login
-getRedirectResult(auth).catch(e=> console.warn('redirect error', e));
-
-// ── Firestore sync ────────────────────────────────────────────────────────
+// Handle redirect result first, then set up auth listener
+getRedirectResult(auth).then(result => {
+  // result is null if not coming back from redirect, that's fine
+}).catch(e => {
+  console.warn('redirect error', e);
+}).finally(() => {
+  // Set up auth state listener after redirect is handled
+  onAuthStateChanged(auth, user=>{
+    if(user){
+      window._currentUser = user;
+      const avatar = document.getElementById('user-avatar');
+      if(avatar){
+        if(user.photoURL){
+          avatar.innerHTML=`<img src="${user.photoURL}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">`;
+        } else {
+          avatar.textContent = user.displayName?user.displayName[0]:'?';
+        }
+        avatar.title = user.displayName || user.email || '';
+      }
+      hideLoginScreen();
+      startSync(user.uid);
+    } else {
+      window._currentUser = null;
+      stopSync();
+      showLoginScreen();
+    }
+  });
+});
 let unsubscribe = null;
 let firstLoad   = true;
 let pushTimer   = null;
@@ -112,28 +136,6 @@ function stopSync(){
 }
 
 // ── Auth state ────────────────────────────────────────────────────────────
-onAuthStateChanged(auth, user=>{
-  if(user){
-    // show user avatar/name in header
-    window._currentUser = user;
-    const avatar = document.getElementById('user-avatar');
-    if(avatar){
-      if(user.photoURL){
-        avatar.innerHTML=`<img src="${user.photoURL}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">`;
-      } else {
-        avatar.textContent = user.displayName?user.displayName[0]:'?';
-      }
-      avatar.title = user.displayName || user.email || '';
-    }
-    hideLoginScreen();
-    startSync(user.uid);
-  } else {
-    window._currentUser = null;
-    stopSync();
-    showLoginScreen();
-  }
-});
-
 window._schedulePush = schedulePush;
 window._pushToCloud  = pushToCloud;
 window._fbReady = true;
