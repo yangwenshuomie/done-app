@@ -50,34 +50,7 @@ window._signOut = async ()=>{
   showLoginScreen();
 };
 
-// Handle redirect result first, then set up auth listener
-getRedirectResult(auth).then(result => {
-  // result is null if not coming back from redirect, that's fine
-}).catch(e => {
-  console.warn('redirect error', e);
-}).finally(() => {
-  // Set up auth state listener after redirect is handled
-  onAuthStateChanged(auth, user=>{
-    if(user){
-      window._currentUser = user;
-      const avatar = document.getElementById('user-avatar');
-      if(avatar){
-        if(user.photoURL){
-          avatar.innerHTML=`<img src="${user.photoURL}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">`;
-        } else {
-          avatar.textContent = user.displayName?user.displayName[0]:'?';
-        }
-        avatar.title = user.displayName || user.email || '';
-      }
-      hideLoginScreen();
-      startSync(user.uid);
-    } else {
-      window._currentUser = null;
-      stopSync();
-      showLoginScreen();
-    }
-  });
-});
+// ── Firestore sync ────────────────────────────────────────────────────────
 let unsubscribe = null;
 let firstLoad   = true;
 let pushTimer   = null;
@@ -109,22 +82,17 @@ function startSync(uid){
     if(!firstLoad && data.updatedAt && (Date.now()-data.updatedAt) < 2000) return;
     const wasFirst = firstLoad;
     firstLoad = false;
-
     window._appEntries = data.entries || [];
     window._appTags    = data.tags    || window._defaultTags;
     window._appTodos   = data.todos   || [];
-
     localStorage.setItem('done_entries', JSON.stringify(window._appEntries));
     localStorage.setItem('done_tags',    JSON.stringify(window._appTags));
     localStorage.setItem('done_todos',   JSON.stringify(window._appTodos));
-
     if(window._appReady){
       entries = window._appEntries;
       tags    = window._appTags;
       todos   = window._appTodos;
-      updateHeader();
-      buildDateStrip();
-      renderScheduleBody();
+      updateHeader(); buildDateStrip(); renderScheduleBody();
       if(window._curTab==='stats') renderStats();
       if(!wasFirst) showToast('已同步最新数据');
     }
@@ -135,7 +103,51 @@ function stopSync(){
   if(unsubscribe){ unsubscribe(); unsubscribe=null; }
 }
 
+function setAvatar(user){
+  const avatar = document.getElementById('user-avatar');
+  if(!avatar) return;
+  if(user.photoURL){
+    avatar.innerHTML=`<img src="${user.photoURL}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">`;
+  } else {
+    avatar.textContent = user.displayName?user.displayName[0]:'?';
+  }
+  avatar.title = user.displayName || user.email || '';
+}
+
 // ── Auth state ────────────────────────────────────────────────────────────
+// Show login only after Firebase has had time to restore session
+let authResolved = false;
+const loginTimeout = setTimeout(()=>{
+  if(!authResolved) showLoginScreen(); // no session after 4s → show login
+}, 4000);
+
+onAuthStateChanged(auth, async user=>{
+  if(user){
+    // Logged in (either session restore or coming back from redirect)
+    clearTimeout(loginTimeout);
+    authResolved = true;
+    window._currentUser = user;
+    setAvatar(user);
+    hideLoginScreen();
+    startSync(user.uid);
+  } else {
+    // Could be: (a) not logged in, (b) transient state during redirect
+    // Check if we're returning from a redirect before showing login
+    try {
+      const result = await getRedirectResult(auth);
+      if(result && result.user){
+        // Just completed redirect login — onAuthStateChanged will fire again with user
+        return;
+      }
+    } catch(e){ console.warn('redirect check', e); }
+    // Genuinely not logged in
+    clearTimeout(loginTimeout);
+    authResolved = true;
+    window._currentUser = null;
+    stopSync();
+    showLoginScreen();
+  }
+});
 window._schedulePush = schedulePush;
 window._pushToCloud  = pushToCloud;
 window._fbReady = true;
