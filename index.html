@@ -16,7 +16,7 @@ import {
   getFirestore, doc, setDoc, onSnapshot
 } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+  getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -43,18 +43,15 @@ function hideLoginScreen(){
   document.getElementById('app').style.display='flex';
 }
 
-window._signIn = async ()=>{
-  try {
-    await signInWithPopup(auth, provider);
-  } catch(e){
-    alert('登录失败，请重试');
-    console.error(e);
-  }
-};
+window._signIn = ()=> signInWithRedirect(auth, provider);
 window._signOut = async ()=>{
   if(!confirm('确定退出登录？')) return;
   await signOut(auth);
+  showLoginScreen();
 };
+
+// Handle redirect result when page loads back after Google login
+getRedirectResult(auth).catch(e=> console.warn('redirect error', e));
 
 // ── Firestore sync ────────────────────────────────────────────────────────
 let unsubscribe = null;
@@ -86,6 +83,7 @@ function startSync(uid){
     if(!snap.exists()) return;
     const data = snap.data();
     if(!firstLoad && data.updatedAt && (Date.now()-data.updatedAt) < 2000) return;
+    const wasFirst = firstLoad;
     firstLoad = false;
 
     window._appEntries = data.entries || [];
@@ -104,7 +102,7 @@ function startSync(uid){
       buildDateStrip();
       renderScheduleBody();
       if(window._curTab==='stats') renderStats();
-      if(!firstLoad) showToast('已同步最新数据');
+      if(!wasFirst) showToast('已同步最新数据');
     }
   });
 }
